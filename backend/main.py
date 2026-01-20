@@ -93,28 +93,40 @@ def get_relevant_context(user_question: str, session_id: str):
     return context
 
 # --- ENDPOINTS ---
-
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    session_id: str = Form(None) # <--- NEW: Optional Session ID
+):
     try:
         if not file.filename.endswith(".pdf"):
              raise HTTPException(status_code=400, detail="Only PDFs are allowed")
         
-        session_data = {"file_name": file.filename}
-        session_res = supabase.table("sessions").insert(session_data).execute()
-        new_session_id = session_res.data[0]['id']
-        
-        await ingest_document(file, new_session_id)
+        # Scenario 1: New Chat (No Session ID provided)
+        if not session_id:
+            # Create a new session with the first file's name
+            session_data = {"file_name": file.filename}
+            session_res = supabase.table("sessions").insert(session_data).execute()
+            session_id = session_res.data[0]['id']
+        else:
+            # Scenario 2: Existing Chat (Adding to a session)
+            # Optional: We could update the session name to say "Math.pdf + others"
+            # But for now, we just keep the original name.
+            print(f"🔗 Adding {file.filename} to existing session {session_id}")
+
+        # Process the file and tag it with the session_id
+        await ingest_document(file, session_id)
         
         return {
             "message": "Upload success", 
-            "sessionId": new_session_id, 
+            "sessionId": session_id, 
             "fileName": file.filename
         }
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
+    
+    
 @app.post("/chat")
 async def chat(
     question: str = Form(...),
