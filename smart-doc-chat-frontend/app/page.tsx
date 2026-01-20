@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Upload, Send, Loader2, MessageSquare, PlusCircle, FileText, Trash2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 type Session = {
   id: string;
@@ -199,7 +200,9 @@ export default function Home() {
                        msg.role === 'user' ? 'bg-blue-600 text-white' : 
                        'bg-slate-100 text-slate-800'
                      }`}>
-                       {msg.content}
+                       <ReactMarkdown >
+                            {msg.content}
+                          </ReactMarkdown>
                      </div>
                   </div>
                 ))}
