@@ -77,7 +77,7 @@ export default function Home() {
     }
     const loadMessages = async () => {
       try {
-        const res = await axios.get(`http://127.0.0.1:8000/sessions/${currentSessionId}/messages`);
+        const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/sessions/${currentSessionId}/messages`);
         setMessages(res.data);
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -93,7 +93,7 @@ export default function Home() {
 
   const fetchSessions = async () => {
     try {
-      const res = await axios.get("http://127.0.0.1:8000/sessions");
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/sessions`);
       setSessions(res.data);
     } catch (e) {
       console.error("Failed to load sessions");
@@ -107,7 +107,7 @@ export default function Home() {
     formData.append("file", file);
 
     try {
-      const res = await axios.post("http://127.0.0.1:8000/upload", formData);
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/upload`, formData);
       await fetchSessions();
       setCurrentSessionId(res.data.sessionId);
       setCurrentFileName(res.data.fileName);
@@ -131,7 +131,7 @@ export default function Home() {
     formData.append("session_id", currentSessionId);
 
     try {
-      const res = await axios.post("http://127.0.0.1:8000/upload", formData);
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/upload`, formData);
       setMessages(prev => [...prev, {role: "system", content: `📄 Added document: ${res.data.fileName}`}]);
     } catch (error) {
       alert("Failed to add file.");
@@ -157,7 +157,7 @@ export default function Home() {
     formData.append("session_id", currentSessionId);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/chat", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat`, {
         method: "POST",
         body: formData,
       });
@@ -200,7 +200,7 @@ export default function Home() {
     e.stopPropagation();
     if (!confirm("Delete this chat?")) return;
     try {
-      await axios.delete(`http://127.0.0.1:8000/sessions/${sessionId}`);
+      await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/sessions/${sessionId}`);
       setSessions(sessions.filter(s => s.id !== sessionId));
       if (currentSessionId === sessionId) setCurrentSessionId(null);
     } catch (error) {
