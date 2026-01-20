@@ -119,11 +119,10 @@ const handleChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!question || !currentSessionId) return;
 
-    // 1. Add User Message & Empty Assistant Message immediately
+    // 1. Setup UI
     const userMsg: Message = { role: "user", content: question };
-    const initialAssistantMsg: Message = { role: "assistant", content: "" }; // Placeholder
+    const initialAssistantMsg: Message = { role: "assistant", content: "" }; 
     
-    // We update the UI instantly
     setMessages(prev => [...prev, userMsg, initialAssistantMsg]);
     setQuestion("");
     setIsChatting(true);
@@ -133,7 +132,6 @@ const handleChat = async (e: React.FormEvent) => {
     formData.append("session_id", currentSessionId);
 
     try {
-      // 2. Use fetch instead of axios for streaming
       const response = await fetch("http://127.0.0.1:8000/chat", {
         method: "POST",
         body: formData,
@@ -146,28 +144,31 @@ const handleChat = async (e: React.FormEvent) => {
       let done = false;
       let accumalatedAnswer = "";
 
-      // 3. Read the stream chunk by chunk
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
         
         if (value) {
+          // 1. Get the big chunk from the server
           const chunk = decoder.decode(value);
-          accumalatedAnswer += chunk;
+          
+          // 2. THE SLOW DOWN TRICK:
+          // Instead of adding the whole chunk, we add it letter-by-letter
+          for (let i = 0; i < chunk.length; i++) {
+             accumalatedAnswer += chunk[i];
 
-          if (accumalatedAnswer.includes("Quota Exceeded")) {
-             // You could trigger a toast here if you have one installed
-             // toast.error("Slow down! API limit reached.");
+             setMessages((prev) => {
+                const newMsgs = [...prev];
+                const lastMsg = newMsgs[newMsgs.length - 1]; 
+                lastMsg.content = accumalatedAnswer;
+                return newMsgs;
+             });
+
+             // 3. The "Brake Pedal"
+             // Wait 20ms between every character. 
+             // Lower number = Faster. Higher number = Slower.
+             await new Promise(resolve => setTimeout(resolve, 10)); 
           }
-
-          // 4. Update the LAST message (the empty assistant one) with new text
-          setMessages((prev) => {
-            const newMsgs = [...prev];
-            // The last message is the AI one we just added
-            const lastMsg = newMsgs[newMsgs.length - 1]; 
-            lastMsg.content = accumalatedAnswer;
-            return newMsgs;
-          });
         }
       }
 
