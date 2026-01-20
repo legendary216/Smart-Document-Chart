@@ -379,7 +379,7 @@ export default function Home() {
           <>
             {/* Messages Area */}
              <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth custom-scrollbar">
-                <div className="max-w-3xl mx-auto space-y-6 md:space-y-8 pb-32">
+                <div className="max-w-3xl mx-auto space-y-6 md:space-y-8 pb-20">
                     {messages.map((msg, i) => {
                       // FIX: Detect if this is the "Thinking" message (Empty + Last one)
                       const isThinking = isChatting && i === messages.length - 1 && msg.role === "assistant" && msg.content === "";
