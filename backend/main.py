@@ -9,6 +9,9 @@ import io
 import uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from fastapi.responses import StreamingResponse
+from google.api_core.exceptions import ResourceExhausted # <--- ADD THIS
+import re
 
 load_dotenv()
 
@@ -173,76 +176,103 @@ async def upload_document(
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-    
 @app.post("/chat")
 async def chat(
     question: str = Form(...),
-    session_id: str = Form(...) 
+    session_id: str = Form(...)
 ):
-    try:
-        # 1. Save USER message
-        supabase.table("messages").insert({
-            "session_id": session_id,
-            "role": "user",
-            "content": question
-        }).execute()
+    # 1. Save USER message
+    supabase.table("messages").insert({
+        "session_id": session_id,
+        "role": "user",
+        "content": question
+    }).execute()
 
-        # 2. Get Context
-        context = get_relevant_context(question, session_id)
-        if not context:
-            answer = "I couldn't find any information in this document."
-        else:
-            model = genai.GenerativeModel('gemini-3-flash-preview')
-            
-            prompt = f"""
-            You are a helpful assistant. Answer the user's question based strictly on the context provided.
-            
-            CRITICAL CITATION RULES:
+    context = get_relevant_context(question, session_id)
+    
+    # 3. Generator Function with ERROR HANDLING
+    async def generate():
+        model = genai.GenerativeModel('gemini-3-flash-preview')
+        
+        # ... (safety settings code) ...
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+
+        prompt = f"""
+        You are a helpful assistant. Answer based on the context.
+           CRITICAL CITATION RULES:
         1. Every time you use information, you MUST cite the page number in square brackets at the end of the sentence.
         2. If information comes from multiple pages, combine them with commas.
            - Bad: [Page 1] [Page 2]
            - Good: [Page 1, 2]
         3. If you don't know the answer from the context, say "I couldn't find that in the document."
-            Context:
-            {context}
+        
+        Context: {context}
+        Question: {question}
+        """
+
+        full_response_text = ""
+
+        try:
+            # --- TRY TO GENERATE ---
+            response = await model.generate_content_async(
+                prompt, 
+                stream=True, 
+                safety_settings=safety_settings
+            )
             
-            Question: {question}
-            """
+            async for chunk in response:
+                if chunk.text:
+                    full_response_text += chunk.text
+                    yield chunk.text
+                    
+        except ResourceExhausted as e:
+            error_text = str(e)
+            
+            # 1. Default Message
+            clean_message = "Quota exceeded. Please wait a moment."
 
-            # --- NEW: DISABLE SAFETY FILTERS ---
-            # This prevents the "Valid Part" error on benign documents
-            safety_settings = {
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
+            # 2. Try to find the EXACT time using Regex
+            # This looks for the pattern: "retry in" followed by numbers
+            match = re.search(r"retry in (\d+\.?\d*)s", error_text)
+            
+            if match:
+                # We found the exact seconds! (e.g., "30.26")
+                seconds = float(match.group(1))
+                # Round it up to be nice (e.g., 31 seconds)
+                clean_message = f"Quota exceeded. Please wait {int(seconds) + 1} seconds."
+            
+            # 3. If exact time isn't found, check generic limits
+            elif "per day" in error_text.lower():
+                clean_message = "Daily quota exceeded. Please try again tomorrow."
+            elif "per minute" in error_text.lower():
+                clean_message = "Rate limit hit. Please wait 1 minute."
 
-            response = model.generate_content(prompt, safety_settings=safety_settings)
+            # 4. Send ONLY the clean message
+            # We add a double newline \n\n so it appears as a new paragraph
+            formatted_error = f"\n\n⏳ **{clean_message}**"
+            
+            full_response_text += formatted_error
+            yield formatted_error
+            
+        except Exception as e:
+            # --- CATCH GENERIC ERRORS ---
+            error_msg = f"\n\n⚠️ **System Error:** {str(e)}"
+            full_response_text += error_msg
+            yield error_msg
 
-            # --- NEW: CRASH PROTECTION ---
-            # If Gemini still refuses, we handle it gracefully instead of crashing
-            if response.parts:
-                answer = response.text
-            else:
-                # Log the reason for debugging
-                print(f"⚠️ Gemini Refused. Finish Reason: {response.candidates[0].finish_reason}")
-                print(f"⚠️ Safety Ratings: {response.candidates[0].safety_ratings}")
-                answer = "I'm sorry, but I cannot answer that question (The AI model returned an empty response)."
-
-        # 3. Save AI message
+        # Save whatever we got (even if it's just the error message)
         supabase.table("messages").insert({
             "session_id": session_id,
             "role": "assistant",
-            "content": answer
+            "content": full_response_text
         }).execute()
 
-        return {"answer": answer}
-
-    except Exception as e:
-        print(f"Error: {e}")
-        # Send the actual error to the frontend so you can see it
-        return {"answer": f"System Error: {str(e)}"}
+    return StreamingResponse(generate(), media_type="text/plain")
 
 # --- NEW: Get Messages for a Session ---
 @app.get("/sessions/{session_id}/messages")

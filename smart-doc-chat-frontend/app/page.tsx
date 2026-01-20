@@ -115,13 +115,16 @@ export default function Home() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
-
-  const handleChat = async (e: React.FormEvent) => {
+const handleChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!question || !currentSessionId) return;
 
-    const newMsgs = [...messages, { role: "user", content: question }];
-    setMessages(newMsgs);
+    // 1. Add User Message & Empty Assistant Message immediately
+    const userMsg: Message = { role: "user", content: question };
+    const initialAssistantMsg: Message = { role: "assistant", content: "" }; // Placeholder
+    
+    // We update the UI instantly
+    setMessages(prev => [...prev, userMsg, initialAssistantMsg]);
     setQuestion("");
     setIsChatting(true);
 
@@ -130,10 +133,47 @@ export default function Home() {
     formData.append("session_id", currentSessionId);
 
     try {
-      const res = await axios.post("http://127.0.0.1:8000/chat", formData);
-      setMessages([...newMsgs, { role: "assistant", content: res.data.answer }]);
+      // 2. Use fetch instead of axios for streaming
+      const response = await fetch("http://127.0.0.1:8000/chat", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.body) return;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let accumalatedAnswer = "";
+
+      // 3. Read the stream chunk by chunk
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        
+        if (value) {
+          const chunk = decoder.decode(value);
+          accumalatedAnswer += chunk;
+
+          if (accumalatedAnswer.includes("Quota Exceeded")) {
+             // You could trigger a toast here if you have one installed
+             // toast.error("Slow down! API limit reached.");
+          }
+
+          // 4. Update the LAST message (the empty assistant one) with new text
+          setMessages((prev) => {
+            const newMsgs = [...prev];
+            // The last message is the AI one we just added
+            const lastMsg = newMsgs[newMsgs.length - 1]; 
+            lastMsg.content = accumalatedAnswer;
+            return newMsgs;
+          });
+        }
+      }
+
     } catch (e) {
-       setMessages([...newMsgs, { role: "system", content: "Error fetching response." }]);
+       console.error(e);
+       setMessages(prev => [...prev, { role: "system", content: "Error fetching response." }]);
     } finally {
       setIsChatting(false);
     }
@@ -218,28 +258,39 @@ export default function Home() {
             </div>
 
              <div className="flex-1 overflow-y-auto space-y-4 p-4 border rounded-lg bg-white mb-4 shadow-sm">
-                {messages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] p-3 rounded-lg overflow-hidden ${
-                       msg.role === 'user' ? 'bg-blue-600 text-white' : 
-                       msg.role === 'system' ? 'bg-yellow-50 text-yellow-800 text-sm border border-yellow-200' : 
-                       'bg-slate-100 text-slate-800'
-                     }`}>
-                       <ReactMarkdown >
-                         {msg.content}
-                       </ReactMarkdown>
-                     </div>
-                  </div>
-                ))}
-                {isChatting && (
-                  <div className="flex justify-start">
-                    <div className="bg-slate-100 text-slate-800 p-4 rounded-lg flex items-center gap-1">
-                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
-                    </div>
-                  </div>
-                )}
+                {messages.map((msg, i) => {
+  // 🚫 Hide empty assistant bubble
+  if (msg.role === "assistant" && msg.content.trim() === "") {
+    return null;
+  }
+
+  return (
+    <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[80%] p-3 rounded-lg overflow-hidden ${
+          msg.role === "user"
+            ? "bg-blue-600 text-white"
+            : msg.role === "system"
+            ? "bg-yellow-50 text-yellow-800 text-sm border border-yellow-200"
+            : "bg-slate-100 text-slate-800"
+        }`}
+      >
+        <ReactMarkdown>{msg.content}</ReactMarkdown>
+      </div>
+    </div>
+  );
+})}
+               {/* Show dots ONLY if we are chatting AND the last message is empty */}
+{isChatting && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
+  <div className="flex justify-start">
+    <div className="bg-slate-100 text-slate-800 p-4 rounded-lg flex items-center gap-1">
+      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+     
+    </div>
+  </div>
+)}
                 <div ref={messagesEndRef} />
              </div>
              
