@@ -70,7 +70,7 @@ def get_image_description(image_bytes):
         image = Image.open(io.BytesIO(image_bytes))
         
         # 2. Ask Gemini to describe it
-        model = genai.GenerativeModel('gemini-3-pro-preview')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content([
             "Describe this image in detail. If it's a chart or graph, explain the data trends.", 
             image
@@ -234,7 +234,7 @@ async def chat(
     
     # 3. Generator Function with ERROR HANDLING
     async def generate():
-        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        model = genai.GenerativeModel('gemini-3-flash-preview')
         
         # ... (safety settings code) ...
         safety_settings = {

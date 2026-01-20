@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { 
   Upload, Send, Loader2, MessageSquare, PlusCircle, 
-  FileText, Trash2, Paperclip, Bot, User, Sparkles, Menu, PanelLeftClose, PanelLeftOpen 
+  FileText, Trash2, Paperclip, Bot, User, Sparkles, Menu, PanelLeftClose, PanelLeftOpen , Brain
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -233,9 +233,10 @@ export default function Home() {
             <div className="p-6 pb-2">
                 <div className="flex items-center gap-3 text-white font-bold text-xl mb-6">
                     <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/50">
-                        <Sparkles size={20} className="text-white" />
+                        {/* <Sparkles size={20} className="text-white" /> */}
+                        <Brain size={20} className="text-white" />
                     </div>
-                    DocChat AI
+                    Smart Doc Chat
                 </div>
 
                 <Button 
@@ -288,7 +289,7 @@ export default function Home() {
                     <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
                         ME
                     </div>
-                    <span>My Account</span>
+                    <span>Guest</span>
                 </div>
             </div>
         </div>
@@ -464,7 +465,7 @@ export default function Home() {
                        <input
                          value={question} 
                          onChange={(e) => setQuestion(e.target.value)} 
-                         placeholder="Ask DocChat..." 
+                         placeholder="Ask smart doc chat..." 
                          className="w-full bg-transparent border-none focus:ring-0 focus:outline-none focus:border-none shadow-none ring-0 text-slate-800 placeholder:text-slate-400 text-sm md:text-base py-0"
                          disabled={isUploading || isChatting}
                          autoComplete="off"
