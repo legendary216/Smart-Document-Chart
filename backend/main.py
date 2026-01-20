@@ -7,6 +7,7 @@ from pypdf import PdfReader
 import google.generativeai as genai
 import io
 import uuid
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
@@ -37,13 +38,17 @@ def get_text_from_pdf(pdf_bytes):
         text += page.extract_text() or ""
     return text
 
-def split_text(text, chunk_size=1000, overlap=100):
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start += chunk_size - overlap
+def split_text(text):
+    """
+    Splits text recursively: checks for paragraphs, then sentences, then words.
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,       # Aim for ~1000 characters per chunk
+        chunk_overlap=100,     # Keep 100 characters of history between chunks
+        length_function=len,
+        is_separator_regex=False,
+    )
+    chunks = text_splitter.split_text(text)
     return chunks
 
 async def ingest_document(file: UploadFile, session_id: str):
