@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,11 +27,18 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // Auto-scroll to bottom ref
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load previous sessions on startup
   useEffect(() => {
     fetchSessions();
   }, []);
+
+  // Scroll to bottom whenever messages or loading changes
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   const fetchSessions = async () => {
     try {
@@ -50,13 +57,10 @@ export default function Home() {
 
     try {
       const res = await axios.post("http://127.0.0.1:8000/upload", formData);
-      const newSessionId = res.data.sessionId;
-      
-      // Refresh list and select new session
       await fetchSessions();
-      setCurrentSessionId(newSessionId);
+      setCurrentSessionId(res.data.sessionId);
       setMessages([{role: "system", text: `Ready to chat about ${res.data.fileName}!`}]);
-      setFile(null); // Reset file input
+      setFile(null); 
     } catch (e) {
       alert("Error uploading");
     } finally {
@@ -71,7 +75,7 @@ export default function Home() {
     const newMsgs = [...messages, { role: "user", text: question }];
     setMessages(newMsgs);
     setQuestion("");
-    setLoading(true);
+    setLoading(true); // <--- START LOADING UI
 
     const formData = new FormData();
     formData.append("question", question);
@@ -79,11 +83,16 @@ export default function Home() {
 
     try {
       const res = await axios.post("http://127.0.0.1:8000/chat", formData);
+      // Remove loading UI by adding the real answer
       setMessages([...newMsgs, { role: "assistant", text: res.data.answer }]);
     } catch (e) {
-      setMessages([...newMsgs, { role: "system", text: "Error fetching response." }]);
+      // Capture detailed error if backend sends one
+      const errorMsg = axios.isAxiosError(e) && e.response?.data?.answer 
+        ? e.response.data.answer 
+        : "Error fetching response.";
+      setMessages([...newMsgs, { role: "system", text: errorMsg }]);
     } finally {
-      setLoading(false);
+      setLoading(false); // <--- STOP LOADING UI
     }
   };
 
@@ -140,6 +149,8 @@ export default function Home() {
           // CHAT SCREEN
           <div className="w-full max-w-3xl flex flex-col h-full">
              <div className="flex-1 overflow-y-auto space-y-4 p-4 border rounded-lg bg-white mb-4 shadow-sm">
+                
+                {/* 1. Render All Messages */}
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] p-3 rounded-lg ${
@@ -151,17 +162,34 @@ export default function Home() {
                      </div>
                   </div>
                 ))}
+
+                {/* 2. THE LOADING BUBBLE (Only shows when loading is true) */}
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-100 text-slate-800 p-4 rounded-lg flex items-center gap-1">
+                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Invisible element to auto-scroll to */}
+                <div ref={messagesEndRef} />
              </div>
              
+             {/* 3. INPUT AREA */}
              <form onSubmit={handleChat} className="flex gap-2">
                <Input 
                  value={question} 
                  onChange={(e) => setQuestion(e.target.value)} 
                  placeholder="Ask something..." 
                  className="flex-1"
+                 disabled={loading} // Prevent typing while waiting
                />
                <Button type="submit" disabled={loading}>
-                 <Send size={16} />
+                 {/* 4. LOADING ICON SWITCH */}
+                 {loading ? <Loader2 className="animate-spin" /> : <Send size={16} />}
                </Button>
              </form>
           </div>
