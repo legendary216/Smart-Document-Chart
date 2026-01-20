@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { 
   Upload, Send, Loader2, MessageSquare, PlusCircle, 
-  FileText, Trash2, Paperclip, Bot, User, Sparkles 
+  FileText, Trash2, Paperclip, Bot, User, Sparkles, Menu, PanelLeftClose, PanelLeftOpen 
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -27,6 +27,11 @@ export default function Home() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [currentFileName, setCurrentFileName] = useState("");
   
+  // Sidebar State
+  // Default to true on desktop, false on mobile? 
+  // We'll initialize false and let useEffect set it based on screen size to avoid hydration mismatch
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
   // Upload State
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -38,6 +43,24 @@ export default function Home() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Initialize Sidebar based on screen size
+  useEffect(() => {
+    const handleResize = () => {
+        if (window.innerWidth >= 768) {
+            setIsSidebarOpen(true);
+        } else {
+            setIsSidebarOpen(false);
+        }
+    };
+    
+    // Set initial
+    handleResize();
+
+    // Add listener
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     fetchSessions();
@@ -61,6 +84,11 @@ export default function Home() {
       }
     };
     loadMessages();
+    
+    // On mobile, close sidebar when selecting a chat. On desktop, keep it open.
+    if (window.innerWidth < 768) {
+        setIsSidebarOpen(false);
+    }
   }, [currentSessionId]);
 
   const fetchSessions = async () => {
@@ -117,7 +145,6 @@ export default function Home() {
     e.preventDefault();
     if (!question || !currentSessionId) return;
 
-    // 1. Setup UI
     const userMsg: Message = { role: "user", content: question };
     const initialAssistantMsg: Message = { role: "assistant", content: "" }; 
     
@@ -151,14 +178,12 @@ export default function Home() {
           
           for (let i = 0; i < chunk.length; i++) {
              accumalatedAnswer += chunk[i];
-
              setMessages((prev) => {
                 const newMsgs = [...prev];
                 const lastMsg = newMsgs[newMsgs.length - 1]; 
                 lastMsg.content = accumalatedAnswer;
                 return newMsgs;
              });
-             // Typing speed delay
              await new Promise(resolve => setTimeout(resolve, 10)); 
           }
         }
@@ -184,85 +209,139 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC]">
+    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
       
-      {/* 1. POLISHED SIDEBAR */}
-      <div className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-2xl z-10">
-        
-        {/* App Logo Area */}
-        <div className="p-6 pb-2">
-            <div className="flex items-center gap-3 text-white font-bold text-xl mb-6">
-                <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/50">
-                    <Sparkles size={20} className="text-white" />
+     {/* 1. SIDEBAR COMPONENT */}
+      <div 
+        className={`
+            bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-2xl z-50
+            transition-all duration-300 ease-in-out overflow-hidden
+            
+            /* Mobile Styles: Fixed, Slide in/out via Transform */
+            fixed inset-y-0 left-0 
+            ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            
+            /* Desktop Styles: Relative, Width Expand/Collapse via Width */
+            md:relative md:translate-x-0
+            ${isSidebarOpen ? 'md:w-72' : 'md:w-0'}
+        `}
+      >
+        {/* Inner Container: Fixed width prevents content from squashing during animation */}
+        <div className="flex flex-col h-full w-72 shrink-0"> 
+            
+            {/* Logo Area */}
+            <div className="p-6 pb-2">
+                <div className="flex items-center gap-3 text-white font-bold text-xl mb-6">
+                    <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/50">
+                        <Sparkles size={20} className="text-white" />
+                    </div>
+                    DocChat AI
                 </div>
-                DocChat AI
+
+                <Button 
+                    onClick={() => {
+                        setCurrentSessionId(null);
+                        if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }} 
+                    className="w-full justify-start gap-3 bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/20 font-medium py-6 rounded-xl transition-all"
+                >
+                    <PlusCircle size={20} /> 
+                    New Chat
+                </Button>
             </div>
 
-            <Button 
-                onClick={() => setCurrentSessionId(null)} 
-                className="w-full justify-start gap-3 bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/20 font-medium py-6 rounded-xl transition-all"
-            >
-                <PlusCircle size={20} /> 
-                New Chat
-            </Button>
-        </div>
-
-        {/* Scrollable List */}
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar">
-          <p className="text-xs font-bold text-slate-500 uppercase px-2 mb-2 tracking-wider">Your Library</p>
-          {sessions.map(session => (
-            <div 
-              key={session.id}
-              onClick={() => {
-                setCurrentSessionId(session.id);
-                setCurrentFileName(session.file_name);
-              }}
-              className={`
-                group p-3 rounded-xl cursor-pointer text-sm flex items-center justify-between transition-all duration-200
-                ${currentSessionId === session.id 
-                    ? 'bg-slate-800 text-white shadow-lg border-l-4 border-blue-500 translate-x-1' 
-                    : 'hover:bg-slate-800/50 hover:text-slate-200'
-                }
-              `}
-            >
-              <div className="flex items-center gap-3 overflow-hidden">
-                <MessageSquare size={16} className={currentSessionId === session.id ? "text-blue-400" : "text-slate-500"} />
-                <span className="truncate font-medium">{session.file_name}</span>
-              </div>
-              <button 
-                onClick={(e) => handleDeleteSession(e, session.id)}
-                className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1.5 hover:bg-slate-700/50 rounded-full"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-        
-        {/* User Profile / Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-            <div className="flex items-center gap-3 text-sm font-medium text-slate-400 hover:text-white cursor-pointer transition-colors">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                    ME
+            {/* Scrollable List */}
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar">
+            <p className="text-xs font-bold text-slate-500 uppercase px-2 mb-2 tracking-wider">Your Library</p>
+            {sessions.map(session => (
+                <div 
+                key={session.id}
+                onClick={() => {
+                    setCurrentSessionId(session.id);
+                    setCurrentFileName(session.file_name);
+                }}
+                className={`
+                    group p-3 rounded-xl cursor-pointer text-sm flex items-center justify-between transition-all duration-200
+                    ${currentSessionId === session.id 
+                        ? 'bg-slate-800 text-white shadow-lg border-l-4 border-blue-500 translate-x-1' 
+                        : 'hover:bg-slate-800/50 hover:text-slate-200'
+                    }
+                `}
+                >
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <MessageSquare size={16} className={currentSessionId === session.id ? "text-blue-400" : "text-slate-500"} />
+                    <span className="truncate font-medium">{session.file_name}</span>
                 </div>
-                <span>My Account</span>
+                <button 
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1.5 hover:bg-slate-700/50 rounded-full"
+                >
+                    <Trash2 size={14} />
+                </button>
+                </div>
+            ))}
+            </div>
+            
+            {/* User Profile / Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+                <div className="flex items-center gap-3 text-sm font-medium text-slate-400 hover:text-white cursor-pointer transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                        ME
+                    </div>
+                    <span>My Account</span>
+                </div>
             </div>
         </div>
       </div>
 
-      {/* 2. MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col relative h-full">
+      {/* MOBILE OVERLAY BACKDROP */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* 2. MAIN CONTENT AREA 
+          - Flex-1 ensures it fills remaining space.
+          - On Desktop, if Sidebar is w-72, this shrinks. If Sidebar w-0, this grows. (The Push)
+      */}
+      <div className="flex-1 flex flex-col relative h-full min-w-0 bg-[#F8FAFC]">
         
+        {/* TOP BAR - Just Hamburger & File Name */}
+        <div className="h-16 flex items-center justify-between px-4 sticky top-0 z-10">
+            <div className="flex items-center gap-4">
+                {/* Hamburger - Always visible here to Toggle Sidebar */}
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+                    className="text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                >
+                    {isSidebarOpen ? <PanelLeftClose size={24} /> : <PanelLeftOpen size={24} />}
+                </Button>
+
+                {/* File Name (If active) */}
+                {currentSessionId && (
+                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 bg-white/50 px-3 py-1 rounded-full border border-slate-200 backdrop-blur-sm">
+                        <FileText size={14} className="text-blue-500" />
+                        {currentFileName}
+                     </div>
+                )}
+            </div>
+        </div>
+
+        {/* CONTENT */}
         {!currentSessionId ? (
-          // EMPTY STATE (Modern)
-          <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-500">
-             <Card className="w-full max-w-lg p-12 space-y-8 text-center bg-white/80 backdrop-blur-xl border-slate-200 shadow-2xl rounded-3xl">
-                <div className="mx-auto w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner">
-                  <Upload size={40} />
+          // EMPTY STATE
+          <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in duration-500">
+             <Card className="w-full max-w-lg p-8 md:p-12 space-y-6 md:space-y-8 text-center bg-white/80 backdrop-blur-xl border-slate-200 shadow-2xl rounded-3xl -mt-20">
+                <div className="mx-auto w-16 h-16 md:w-20 md:h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner">
+                  <Upload size={32} className="md:w-10 md:h-10" />
                 </div>
                 <div className="space-y-2">
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Upload Knowledge</h2>
-                    <p className="text-slate-500 text-lg">Drop your PDF here to start chatting instantly.</p>
+                    <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">Upload Knowledge</h2>
+                    <p className="text-slate-500 text-sm md:text-lg">Drop your PDF here to start chatting instantly.</p>
                 </div>
                 
                 <div className="relative group">
@@ -277,10 +356,10 @@ export default function Home() {
                         />
                         <label 
                             htmlFor="file-upload" 
-                            className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-white hover:border-blue-500 transition-all"
+                            className="flex flex-col items-center justify-center w-full h-24 md:h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-white hover:border-blue-500 transition-all"
                         >
-                             <span className="text-sm font-medium text-slate-600">
-                                {file ? file.name : "Click to select a file"}
+                             <span className="text-sm font-medium text-slate-600 px-4 text-center">
+                                {file ? file.name : "Tap to select a file"}
                              </span>
                         </label>
                     </div>
@@ -296,63 +375,57 @@ export default function Home() {
              </Card>
           </div>
         ) : (
-          // ACTIVE CHAT (Claude Style)
+          // ACTIVE CHAT
           <>
-             {/* Header */}
-             <div className="h-16 border-b bg-white/50 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-10">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
-                        <FileText size={18} />
-                    </div>
-                    <div>
-                        <h2 className="font-semibold text-slate-800">{currentFileName}</h2>
-                        {isUploading && <span className="text-xs text-blue-500 flex items-center gap-1 animate-pulse"><Loader2 size={10} className="animate-spin"/> Processing new file...</span>}
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-slate-600"><Bot size={18} /></Button>
-                </div>
-             </div>
+            {/* Messages Area */}
+             <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth custom-scrollbar">
+                <div className="max-w-3xl mx-auto space-y-6 md:space-y-8 pb-32">
+                    {messages.map((msg, i) => {
+                      // FIX: Detect if this is the "Thinking" message (Empty + Last one)
+                      const isThinking = isChatting && i === messages.length - 1 && msg.role === "assistant" && msg.content === "";
+                      
+                      // If it is the ghost message, HIDE IT from the main loop
+                      if (isThinking) return null;
 
-             {/* Messages Scroll Area */}
-             <div className="flex-1 overflow-y-auto p-4 sm:p-8 scroll-smooth custom-scrollbar">
-                <div className="max-w-3xl mx-auto space-y-8 pb-32"> {/* Added pb-32 for input clearance */}
-                    {messages.map((msg, i) => (
-                      <div key={i} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                        
-                        {/* Avatar */}
-                        <div className={`
-                            flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm
-                            ${msg.role === 'user' 
-                                ? 'bg-slate-800 text-white' 
-                                : msg.role === 'system' ? 'bg-yellow-100 text-yellow-600' : 'bg-white border border-slate-100 text-blue-600'}
-                        `}>
-                            {msg.role === 'user' ? <User size={18} /> : msg.role === 'system' ? <Sparkles size={18} /> : <Bot size={20} />}
-                        </div>
-
-                        {/* Bubble */}
-                        <div className={`
-                           group relative px-6 py-4 max-w-[85%] shadow-sm leading-relaxed text-[15px]
-                           ${msg.role === 'user' 
-                             ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md' 
-                             : msg.role === 'system' 
-                                ? 'bg-yellow-50 text-yellow-900 border border-yellow-200 rounded-xl text-sm w-full text-center' 
-                                : 'bg-white text-slate-800 border border-slate-100 rounded-2xl rounded-tl-sm shadow-sm'}
-                        `}>
-                           <ReactMarkdown >
-                             {msg.content}
-                           </ReactMarkdown>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Thinking Indicator */}
-                    {isChatting && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 rounded-full bg-white border border-slate-100 flex items-center justify-center shadow-sm text-blue-600">
-                                <Bot size={20} />
+                      return (
+                        <div key={i} className={`flex gap-3 md:gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+                            
+                            {/* Avatar */}
+                            <div className={`
+                                flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center shadow-sm
+                                ${msg.role === 'user' 
+                                    ? 'bg-slate-800 text-white' 
+                                    : msg.role === 'system' ? 'bg-yellow-100 text-yellow-600' : 'bg-white border border-slate-100 text-blue-600'}
+                            `}>
+                                {msg.role === 'user' ? <User size={16} /> : msg.role === 'system' ? <Sparkles size={16} /> : <Bot size={18} />}
                             </div>
-                            <div className="bg-white border border-slate-100 px-6 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
+
+                            {/* Bubble */}
+                            <div className={`
+                            group relative px-4 py-3 md:px-6 md:py-4 max-w-[85%] shadow-sm leading-relaxed text-sm md:text-[15px]
+                            ${msg.role === 'user' 
+                                ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md' 
+                                : msg.role === 'system' 
+                                    ? 'bg-yellow-50 text-yellow-900 border border-yellow-200 rounded-xl w-full text-center' 
+                                    : 'bg-white text-slate-800 border border-slate-100 rounded-2xl rounded-tl-sm shadow-sm'}
+                            `}>
+                            <ReactMarkdown 
+                                   
+                            >
+                                {msg.content}
+                            </ReactMarkdown>
+                            </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Thinking Indicator (Only this will show now!) */}
+                    {isChatting && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
+                        <div className="flex gap-4 animate-in fade-in zoom-in duration-300">
+                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white border border-slate-100 flex items-center justify-center shadow-sm text-blue-600">
+                                <Bot size={18} />
+                            </div>
+                            <div className="bg-white border border-slate-100 px-4 py-3 md:px-6 md:py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
                                 <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                                 <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                                 <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></span>
@@ -363,13 +436,12 @@ export default function Home() {
                 </div>
              </div>
 
-             {/* 3. FLOATING INPUT CAPSULE */}
-             <div className="absolute bottom-6 left-0 right-0 px-4 flex justify-center z-20">
+             {/* RESPONSIVE FLOATING INPUT CAPSULE */}
+             <div className="absolute bottom-4 md:bottom-6 left-0 right-0 px-2 md:px-4 flex justify-center z-20">
                  <form 
                     onSubmit={handleChat} 
-                    className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 p-2 flex items-end gap-2 transition-all ring-offset-2 focus-within:ring-2 ring-blue-500/50"
+                    className="w-full max-w-3xl bg-white rounded-[2rem] shadow-2xl border border-slate-200 p-1.5 md:p-2 flex items-end gap-1 md:gap-2 transition-all"
                  >
-                   {/* File Upload Button */}
                    <input 
                       type="file" 
                       ref={fileInputRef} 
@@ -381,39 +453,36 @@ export default function Home() {
                      type="button" 
                      variant="ghost"
                      size="icon"
-                     className="rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 mb-1"
+                     className="rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 mb-0.5"
                      onClick={() => fileInputRef.current?.click()}
                      disabled={isUploading || isChatting}
-                     title="Add context"
                    >
-                     <Paperclip size={20} />
+                     <Paperclip size={18} className="md:w-5 md:h-5" />
                    </Button>
 
-                   {/* Text Input */}
-                   <div className="flex-1 py-3">
+                   <div className="flex-1 py-2 md:py-3">
                        <input
                          value={question} 
                          onChange={(e) => setQuestion(e.target.value)} 
-                         placeholder="Message DocChat..." 
-                         className="w-full bg-transparent border-none focus:ring-0 text-slate-800 placeholder:text-slate-400 text-base resize-none max-h-32 py-0 focus:outline-none shadow-none"
+                         placeholder="Ask DocChat..." 
+                         className="w-full bg-transparent border-none focus:ring-0 focus:outline-none focus:border-none shadow-none ring-0 text-slate-800 placeholder:text-slate-400 text-sm md:text-base py-0"
                          disabled={isUploading || isChatting}
                          autoComplete="off"
                        />
                    </div>
 
-                   {/* Send Button */}
                    <Button 
                         type="submit" 
                         disabled={!question.trim() || isUploading || isChatting}
-                        className={`rounded-2xl h-10 w-10 p-0 mb-1 transition-all duration-300 ${question.trim() ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-100 text-slate-300'}`}
+                        className={`rounded-full h-9 w-9 md:h-10 md:w-10 p-0 mb-0.5 transition-all duration-300 ${question.trim() ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-100 text-slate-300'}`}
                     >
-                     {isChatting ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                     {isChatting ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} className="md:w-[18px] md:h-[18px]" />}
                    </Button>
                  </form>
              </div>
              
-             {/* Gradient Fade at bottom to hide scrolling text behind input */}
-             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#F8FAFC] to-transparent pointer-events-none z-10" />
+             {/* Gradient Fade */}
+             <div className="absolute bottom-0 left-0 right-0 h-24 md:h-32 bg-gradient-to-t from-[#F8FAFC] to-transparent pointer-events-none z-10" />
           </>
         )}
       </div>

@@ -234,7 +234,7 @@ async def chat(
     
     # 3. Generator Function with ERROR HANDLING
     async def generate():
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
         
         # ... (safety settings code) ...
         safety_settings = {
