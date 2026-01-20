@@ -5,7 +5,7 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Upload, Send, Loader2, MessageSquare, PlusCircle, FileText } from "lucide-react";
+import { Upload, Send, Loader2, MessageSquare, PlusCircle, FileText, Trash2 } from "lucide-react";
 
 type Session = {
   id: string;
@@ -22,20 +22,17 @@ export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   
-  // Chat State
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // Auto-scroll to bottom ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchSessions();
   }, []);
 
-  // Scroll to bottom whenever messages or loading changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -75,7 +72,7 @@ export default function Home() {
     const newMsgs = [...messages, { role: "user", text: question }];
     setMessages(newMsgs);
     setQuestion("");
-    setLoading(true); // <--- START LOADING UI
+    setLoading(true);
 
     const formData = new FormData();
     formData.append("question", question);
@@ -83,16 +80,40 @@ export default function Home() {
 
     try {
       const res = await axios.post("http://127.0.0.1:8000/chat", formData);
-      // Remove loading UI by adding the real answer
       setMessages([...newMsgs, { role: "assistant", text: res.data.answer }]);
     } catch (e) {
-      // Capture detailed error if backend sends one
       const errorMsg = axios.isAxiosError(e) && e.response?.data?.answer 
         ? e.response.data.answer 
         : "Error fetching response.";
       setMessages([...newMsgs, { role: "system", text: errorMsg }]);
     } finally {
-      setLoading(false); // <--- STOP LOADING UI
+      setLoading(false);
+    }
+  };
+
+  // --- NEW: DELETE FUNCTION ---
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    // 1. Stop the click from opening the chat
+    e.stopPropagation();
+    
+    // 2. Confirm user intent
+    if (!confirm("Are you sure? This will delete the document and all chats.")) return;
+
+    try {
+      // 3. Call Backend
+      await axios.delete(`http://127.0.0.1:8000/sessions/${sessionId}`);
+      
+      // 4. Update UI
+      setSessions(sessions.filter(s => s.id !== sessionId));
+      
+      // 5. If we deleted the active chat, close it
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error("Error deleting session:", error);
+      alert("Failed to delete session.");
     }
   };
 
@@ -118,10 +139,22 @@ export default function Home() {
                 setCurrentSessionId(session.id);
                 setMessages([{role: 'system', text: `Switched to: ${session.file_name}`}]);
               }}
-              className={`p-2 rounded cursor-pointer text-sm hover:bg-slate-800 flex items-center gap-2 ${currentSessionId === session.id ? 'bg-slate-800 text-white' : ''}`}
+              // Added "group" to help with hover effects
+              className={`group p-2 rounded cursor-pointer text-sm hover:bg-slate-800 flex items-center justify-between ${currentSessionId === session.id ? 'bg-slate-800 text-white' : ''}`}
             >
-              <MessageSquare size={14} />
-              <span className="truncate">{session.file_name}</span>
+              <div className="flex items-center gap-2 overflow-hidden">
+                <MessageSquare size={14} className="flex-shrink-0" />
+                <span className="truncate">{session.file_name}</span>
+              </div>
+
+              {/* DELETE BUTTON (Visible on hover) */}
+              <button 
+                onClick={(e) => handleDeleteSession(e, session.id)}
+                className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity p-1"
+                title="Delete Chat"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           ))}
         </div>
@@ -150,7 +183,6 @@ export default function Home() {
           <div className="w-full max-w-3xl flex flex-col h-full">
              <div className="flex-1 overflow-y-auto space-y-4 p-4 border rounded-lg bg-white mb-4 shadow-sm">
                 
-                {/* 1. Render All Messages */}
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] p-3 rounded-lg ${
@@ -163,7 +195,6 @@ export default function Home() {
                   </div>
                 ))}
 
-                {/* 2. THE LOADING BUBBLE (Only shows when loading is true) */}
                 {loading && (
                   <div className="flex justify-start">
                     <div className="bg-slate-100 text-slate-800 p-4 rounded-lg flex items-center gap-1">
@@ -174,21 +205,18 @@ export default function Home() {
                   </div>
                 )}
                 
-                {/* Invisible element to auto-scroll to */}
                 <div ref={messagesEndRef} />
              </div>
              
-             {/* 3. INPUT AREA */}
              <form onSubmit={handleChat} className="flex gap-2">
                <Input 
                  value={question} 
                  onChange={(e) => setQuestion(e.target.value)} 
                  placeholder="Ask something..." 
                  className="flex-1"
-                 disabled={loading} // Prevent typing while waiting
+                 disabled={loading}
                />
                <Button type="submit" disabled={loading}>
-                 {/* 4. LOADING ICON SWITCH */}
                  {loading ? <Loader2 className="animate-spin" /> : <Send size={16} />}
                </Button>
              </form>

@@ -146,3 +146,16 @@ def get_sessions():
     # Helper to list all previous chats
     res = supabase.table("sessions").select("*").order("created_at", desc=True).execute()
     return res.data
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    try:
+        # Because we used 'on delete cascade' in SQL, 
+        # deleting the session AUTOMATICALLY deletes all its documents!
+        print(f"🗑️ Deleting session: {session_id}")
+        supabase.table("sessions").delete().eq("id", session_id).execute()
+        return {"message": "Session deleted successfully"}
+    except Exception as e:
+        print(f"Error deleting: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
