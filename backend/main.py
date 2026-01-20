@@ -47,15 +47,10 @@ def split_text(text, chunk_size=1000, overlap=100):
     return chunks
 
 async def ingest_document(file: UploadFile, session_id: str):
-    # Note: We NO LONGER wipe the whole database!
-    
-    # 1. Read PDF
     content = await file.read()
     text = get_text_from_pdf(content)
     chunks = split_text(text)
     
-    # 2. Embed & Save with Session ID
-    print(f"💾 Saving to Session {session_id}...")
     for chunk in chunks:
         response = genai.embed_content(
             model="models/text-embedding-004",
@@ -65,7 +60,7 @@ async def ingest_document(file: UploadFile, session_id: str):
         data = {
             "content": chunk, 
             "embedding": response['embedding'],
-            "session_id": session_id  # <--- TAGGING
+            "session_id": session_id
         }
         supabase.table("documents").insert(data).execute()
     
@@ -77,15 +72,13 @@ def get_relevant_context(user_question: str, session_id: str):
         content=user_question,
         task_type="retrieval_query"
     )
-    
-    # We now pass 'filter_session_id' to the database
     result = supabase.rpc(
         "match_documents", 
         {
             "query_embedding": response['embedding'], 
             "match_threshold": 0.3, 
             "match_count": 5,
-            "filter_session_id": session_id # <--- FILTERING
+            "filter_session_id": session_id
         }
     ).execute()
     
@@ -102,17 +95,15 @@ async def upload_document(file: UploadFile = File(...)):
         if not file.filename.endswith(".pdf"):
              raise HTTPException(status_code=400, detail="Only PDFs are allowed")
         
-        # 1. Create a new Session in DB
         session_data = {"file_name": file.filename}
         session_res = supabase.table("sessions").insert(session_data).execute()
         new_session_id = session_res.data[0]['id']
         
-        # 2. Process File for this Session
         await ingest_document(file, new_session_id)
         
         return {
             "message": "Upload success", 
-            "sessionId": new_session_id, # Return ID to Frontend
+            "sessionId": new_session_id, 
             "fileName": file.filename
         }
     except Exception as e:
@@ -122,40 +113,67 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/chat")
 async def chat(
     question: str = Form(...),
-    session_id: str = Form(...) # Frontend MUST send this now
+    session_id: str = Form(...) 
 ):
     try:
+        # 1. Save USER message immediately
+        supabase.table("messages").insert({
+            "session_id": session_id,
+            "role": "user",
+            "content": question
+        }).execute()
+
+        # 2. Get Answer
         context = get_relevant_context(question, session_id)
         if not context:
-            return {"answer": "I couldn't find any information in this document."}
+            answer = "I couldn't find any information in this document."
+        else:
+            model = genai.GenerativeModel('gemini-3-flash-preview')
+            prompt = f"""
+            Answer based strictly on this context:
+            {context}
+            
+            Question: {question}
+            """
+            response = model.generate_content(prompt)
+            answer = response.text
 
-        model = genai.GenerativeModel('gemini-3-flash-preview')
-        prompt = f"""
-        Answer based strictly on this context:
-        {context}
-        
-        Question: {question}
-        """
-        response = model.generate_content(prompt)
-        return {"answer": response.text}
+        # 3. Save AI message
+        supabase.table("messages").insert({
+            "session_id": session_id,
+            "role": "assistant",
+            "content": answer
+        }).execute()
+
+        return {"answer": answer}
+
     except Exception as e:
-         raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- NEW: Get Messages for a Session ---
+@app.get("/sessions/{session_id}/messages")
+async def get_messages(session_id: str):
+    try:
+        # Fetch all messages for this session, sorted by time
+        response = supabase.table("messages")\
+            .select("*")\
+            .eq("session_id", session_id)\
+            .order("created_at", desc=False)\
+            .execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/sessions")
 def get_sessions():
-    # Helper to list all previous chats
     res = supabase.table("sessions").select("*").order("created_at", desc=True).execute()
     return res.data
-
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     try:
-        # Because we used 'on delete cascade' in SQL, 
-        # deleting the session AUTOMATICALLY deletes all its documents!
-        print(f"🗑️ Deleting session: {session_id}")
         supabase.table("sessions").delete().eq("id", session_id).execute()
         return {"message": "Session deleted successfully"}
     except Exception as e:
-        print(f"Error deleting: {e}")
         raise HTTPException(status_code=500, detail=str(e))

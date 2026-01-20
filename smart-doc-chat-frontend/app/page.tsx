@@ -14,13 +14,15 @@ type Session = {
 };
 
 type Message = {
+  id?: string;
   role: string;
-  text: string;
+  content: string; // Using 'content' to match Supabase column
 };
 
 export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentFileName, setCurrentFileName] = useState("");
   
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
@@ -36,6 +38,25 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // --- 1. NEW: Fetch Messages when switching sessions ---
+  useEffect(() => {
+    if (!currentSessionId) {
+      setMessages([]);
+      return;
+    }
+    
+    const loadMessages = async () => {
+      try {
+        const res = await axios.get(`http://127.0.0.1:8000/sessions/${currentSessionId}/messages`);
+        setMessages(res.data);
+      } catch (error) {
+        console.error("Error loading messages:", error);
+      }
+    };
+    
+    loadMessages();
+  }, [currentSessionId]);
 
   const fetchSessions = async () => {
     try {
@@ -56,7 +77,7 @@ export default function Home() {
       const res = await axios.post("http://127.0.0.1:8000/upload", formData);
       await fetchSessions();
       setCurrentSessionId(res.data.sessionId);
-      setMessages([{role: "system", text: `Ready to chat about ${res.data.fileName}!`}]);
+      setCurrentFileName(res.data.fileName);
       setFile(null); 
     } catch (e) {
       alert("Error uploading");
@@ -69,7 +90,8 @@ export default function Home() {
     e.preventDefault();
     if (!question || !currentSessionId) return;
 
-    const newMsgs = [...messages, { role: "user", text: question }];
+    // Optimistic Update: Show user message immediately
+    const newMsgs = [...messages, { role: "user", content: question }];
     setMessages(newMsgs);
     setQuestion("");
     setLoading(true);
@@ -80,39 +102,26 @@ export default function Home() {
 
     try {
       const res = await axios.post("http://127.0.0.1:8000/chat", formData);
-      setMessages([...newMsgs, { role: "assistant", text: res.data.answer }]);
+      // Append AI answer
+      setMessages([...newMsgs, { role: "assistant", content: res.data.answer }]);
     } catch (e) {
-      const errorMsg = axios.isAxiosError(e) && e.response?.data?.answer 
-        ? e.response.data.answer 
-        : "Error fetching response.";
-      setMessages([...newMsgs, { role: "system", text: errorMsg }]);
+       setMessages([...newMsgs, { role: "system", content: "Error fetching response." }]);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- NEW: DELETE FUNCTION ---
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
-    // 1. Stop the click from opening the chat
     e.stopPropagation();
-    
-    // 2. Confirm user intent
-    if (!confirm("Are you sure? This will delete the document and all chats.")) return;
+    if (!confirm("Delete this chat?")) return;
 
     try {
-      // 3. Call Backend
       await axios.delete(`http://127.0.0.1:8000/sessions/${sessionId}`);
-      
-      // 4. Update UI
       setSessions(sessions.filter(s => s.id !== sessionId));
-      
-      // 5. If we deleted the active chat, close it
       if (currentSessionId === sessionId) {
         setCurrentSessionId(null);
-        setMessages([]);
       }
     } catch (error) {
-      console.error("Error deleting session:", error);
       alert("Failed to delete session.");
     }
   };
@@ -137,21 +146,17 @@ export default function Home() {
               key={session.id}
               onClick={() => {
                 setCurrentSessionId(session.id);
-                setMessages([{role: 'system', text: `Switched to: ${session.file_name}`}]);
+                setCurrentFileName(session.file_name);
               }}
-              // Added "group" to help with hover effects
               className={`group p-2 rounded cursor-pointer text-sm hover:bg-slate-800 flex items-center justify-between ${currentSessionId === session.id ? 'bg-slate-800 text-white' : ''}`}
             >
               <div className="flex items-center gap-2 overflow-hidden">
                 <MessageSquare size={14} className="flex-shrink-0" />
                 <span className="truncate">{session.file_name}</span>
               </div>
-
-              {/* DELETE BUTTON (Visible on hover) */}
               <button 
                 onClick={(e) => handleDeleteSession(e, session.id)}
                 className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity p-1"
-                title="Delete Chat"
               >
                 <Trash2 size={14} />
               </button>
@@ -181,16 +186,20 @@ export default function Home() {
         ) : (
           // CHAT SCREEN
           <div className="w-full max-w-3xl flex flex-col h-full">
+            {/* Header */}
+            <div className="mb-4 pb-2 border-b flex justify-between items-center">
+                <h2 className="font-semibold text-lg">{currentFileName}</h2>
+            </div>
+
              <div className="flex-1 overflow-y-auto space-y-4 p-4 border rounded-lg bg-white mb-4 shadow-sm">
                 
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] p-3 rounded-lg ${
                        msg.role === 'user' ? 'bg-blue-600 text-white' : 
-                       msg.role === 'system' ? 'bg-yellow-50 text-yellow-800 text-sm border border-yellow-200' : 
                        'bg-slate-100 text-slate-800'
                      }`}>
-                       {msg.text}
+                       {msg.content}
                      </div>
                   </div>
                 ))}
