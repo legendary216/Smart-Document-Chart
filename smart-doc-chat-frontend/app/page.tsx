@@ -5,10 +5,11 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Upload, Send, Loader2, MessageSquare, PlusCircle, FileText, Trash2, Paperclip } from "lucide-react";
+import { 
+  Upload, Send, Loader2, MessageSquare, PlusCircle, 
+  FileText, Trash2, Paperclip, Bot, User, Sparkles 
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
-
-
 
 type Session = {
   id: string;
@@ -28,15 +29,14 @@ export default function Home() {
   
   // Upload State
   const [file, setFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false); // New distinct loading state for uploads
+  const [isUploading, setIsUploading] = useState(false);
 
   // Chat State
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isChatting, setIsChatting] = useState(false); // Distinct loading state for chat
+  const [isChatting, setIsChatting] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Hidden input ref for the "Add File" button
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -72,7 +72,6 @@ export default function Home() {
     }
   };
 
-  // 1. ORIGINAL UPLOAD (New Chat)
   const handleNewUpload = async () => {
     if (!file) return;
     setIsUploading(true);
@@ -80,7 +79,6 @@ export default function Home() {
     formData.append("file", file);
 
     try {
-      // Don't send session_id -> Backend creates new session
       const res = await axios.post("http://127.0.0.1:8000/upload", formData);
       await fetchSessions();
       setCurrentSessionId(res.data.sessionId);
@@ -94,7 +92,6 @@ export default function Home() {
     }
   };
 
-  // 2. NEW: ADD FILE TO EXISTING CHAT
   const handleAdditionalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0] || !currentSessionId) return;
     
@@ -103,21 +100,20 @@ export default function Home() {
     
     const formData = new FormData();
     formData.append("file", newFile);
-    formData.append("session_id", currentSessionId); // <--- LINK TO CURRENT SESSION
+    formData.append("session_id", currentSessionId);
 
     try {
       const res = await axios.post("http://127.0.0.1:8000/upload", formData);
-      // Add a system message saying file was added
       setMessages(prev => [...prev, {role: "system", content: `📄 Added document: ${res.data.fileName}`}]);
     } catch (error) {
       alert("Failed to add file.");
     } finally {
       setIsUploading(false);
-      // Clear the input so you can upload the same file again if needed
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
-const handleChat = async (e: React.FormEvent) => {
+
+  const handleChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!question || !currentSessionId) return;
 
@@ -151,11 +147,8 @@ const handleChat = async (e: React.FormEvent) => {
         done = doneReading;
         
         if (value) {
-          // 1. Get the big chunk from the server
           const chunk = decoder.decode(value);
           
-          // 2. THE SLOW DOWN TRICK:
-          // Instead of adding the whole chunk, we add it letter-by-letter
           for (let i = 0; i < chunk.length; i++) {
              accumalatedAnswer += chunk[i];
 
@@ -165,15 +158,11 @@ const handleChat = async (e: React.FormEvent) => {
                 lastMsg.content = accumalatedAnswer;
                 return newMsgs;
              });
-
-             // 3. The "Brake Pedal"
-             // Wait 20ms between every character. 
-             // Lower number = Faster. Higher number = Slower.
+             // Typing speed delay
              await new Promise(resolve => setTimeout(resolve, 10)); 
           }
         }
       }
-
     } catch (e) {
        console.error(e);
        setMessages(prev => [...prev, { role: "system", content: "Error fetching response." }]);
@@ -195,20 +184,32 @@ const handleChat = async (e: React.FormEvent) => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-[#F8FAFC]">
       
-      {/* SIDEBAR */}
-      <div className="w-64 bg-slate-900 text-slate-300 p-4 flex flex-col gap-4">
-        <div className="font-bold text-white text-xl flex items-center gap-2">
-           <FileText /> DocChat
-        </div>
+      {/* 1. POLISHED SIDEBAR */}
+      <div className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-2xl z-10">
         
-        <Button onClick={() => setCurrentSessionId(null)} className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-          <PlusCircle size={16} /> New Chat
-        </Button>
+        {/* App Logo Area */}
+        <div className="p-6 pb-2">
+            <div className="flex items-center gap-3 text-white font-bold text-xl mb-6">
+                <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/50">
+                    <Sparkles size={20} className="text-white" />
+                </div>
+                DocChat AI
+            </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Recent Chats</p>
+            <Button 
+                onClick={() => setCurrentSessionId(null)} 
+                className="w-full justify-start gap-3 bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/20 font-medium py-6 rounded-xl transition-all"
+            >
+                <PlusCircle size={20} /> 
+                New Chat
+            </Button>
+        </div>
+
+        {/* Scrollable List */}
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar">
+          <p className="text-xs font-bold text-slate-500 uppercase px-2 mb-2 tracking-wider">Your Library</p>
           {sessions.map(session => (
             <div 
               key={session.id}
@@ -216,119 +217,204 @@ const handleChat = async (e: React.FormEvent) => {
                 setCurrentSessionId(session.id);
                 setCurrentFileName(session.file_name);
               }}
-              className={`group p-2 rounded cursor-pointer text-sm hover:bg-slate-800 flex items-center justify-between ${currentSessionId === session.id ? 'bg-slate-800 text-white' : ''}`}
+              className={`
+                group p-3 rounded-xl cursor-pointer text-sm flex items-center justify-between transition-all duration-200
+                ${currentSessionId === session.id 
+                    ? 'bg-slate-800 text-white shadow-lg border-l-4 border-blue-500 translate-x-1' 
+                    : 'hover:bg-slate-800/50 hover:text-slate-200'
+                }
+              `}
             >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <MessageSquare size={14} className="flex-shrink-0" />
-                <span className="truncate">{session.file_name}</span>
+              <div className="flex items-center gap-3 overflow-hidden">
+                <MessageSquare size={16} className={currentSessionId === session.id ? "text-blue-400" : "text-slate-500"} />
+                <span className="truncate font-medium">{session.file_name}</span>
               </div>
               <button 
                 onClick={(e) => handleDeleteSession(e, session.id)}
-                className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity p-1"
+                className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1.5 hover:bg-slate-700/50 rounded-full"
               >
                 <Trash2 size={14} />
               </button>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* MAIN CONTENT */}
-      <div className="flex-1 p-8 flex flex-col items-center">
-        {!currentSessionId ? (
-          // UPLOAD SCREEN (Initial)
-          <Card className="w-full max-w-md p-6 space-y-6 text-center mt-20">
-             <div className="mx-auto w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
-               <Upload />
-             </div>
-             <h2 className="text-xl font-semibold">Upload a Document to Start</h2>
-             <Input 
-                type="file" 
-                accept=".pdf" 
-                onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)} 
-             />
-             <Button onClick={handleNewUpload} disabled={!file || isUploading} className="w-full">
-               {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Start Chat"}
-             </Button>
-          </Card>
-        ) : (
-          // CHAT SCREEN
-          <div className="w-full max-w-3xl flex flex-col h-full">
-            <div className="mb-4 pb-2 border-b flex justify-between items-center">
-                <h2 className="font-semibold text-lg">{currentFileName}</h2>
-                {/* NEW: Spinner if uploading extra files */}
-                {isUploading && <span className="text-sm text-blue-500 flex items-center gap-2"><Loader2 className="animate-spin" size={14} /> Adding file...</span>}
+        
+        {/* User Profile / Footer */}
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+            <div className="flex items-center gap-3 text-sm font-medium text-slate-400 hover:text-white cursor-pointer transition-colors">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                    ME
+                </div>
+                <span>My Account</span>
             </div>
-
-             <div className="flex-1 overflow-y-auto space-y-4 p-4 border rounded-lg bg-white mb-4 shadow-sm">
-                {messages.map((msg, i) => {
-  // 🚫 Hide empty assistant bubble
-  if (msg.role === "assistant" && msg.content.trim() === "") {
-    return null;
-  }
-
-  return (
-    <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[80%] p-3 rounded-lg overflow-hidden ${
-          msg.role === "user"
-            ? "bg-blue-600 text-white"
-            : msg.role === "system"
-            ? "bg-yellow-50 text-yellow-800 text-sm border border-yellow-200"
-            : "bg-slate-100 text-slate-800"
-        }`}
-      >
-        <ReactMarkdown>{msg.content}</ReactMarkdown>
+        </div>
       </div>
-    </div>
-  );
-})}
-               {/* Show dots ONLY if we are chatting AND the last message is empty */}
-{isChatting && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
-  <div className="flex justify-start">
-    <div className="bg-slate-100 text-slate-800 p-4 rounded-lg flex items-center gap-1">
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
-     
-    </div>
-  </div>
-)}
-                <div ref={messagesEndRef} />
+
+      {/* 2. MAIN CHAT AREA */}
+      <div className="flex-1 flex flex-col relative h-full">
+        
+        {!currentSessionId ? (
+          // EMPTY STATE (Modern)
+          <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-500">
+             <Card className="w-full max-w-lg p-12 space-y-8 text-center bg-white/80 backdrop-blur-xl border-slate-200 shadow-2xl rounded-3xl">
+                <div className="mx-auto w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner">
+                  <Upload size={40} />
+                </div>
+                <div className="space-y-2">
+                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Upload Knowledge</h2>
+                    <p className="text-slate-500 text-lg">Drop your PDF here to start chatting instantly.</p>
+                </div>
+                
+                <div className="relative group">
+                    <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                    <div className="relative">
+                        <Input 
+                            type="file" 
+                            accept=".pdf" 
+                            className="hidden" 
+                            id="file-upload"
+                            onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)} 
+                        />
+                        <label 
+                            htmlFor="file-upload" 
+                            className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-white hover:border-blue-500 transition-all"
+                        >
+                             <span className="text-sm font-medium text-slate-600">
+                                {file ? file.name : "Click to select a file"}
+                             </span>
+                        </label>
+                    </div>
+                </div>
+
+                <Button 
+                    onClick={handleNewUpload} 
+                    disabled={!file || isUploading} 
+                    className="w-full py-6 text-lg rounded-xl shadow-xl shadow-blue-500/20 bg-blue-600 hover:bg-blue-700 transition-all"
+                >
+                  {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Start Analysis"}
+                </Button>
+             </Card>
+          </div>
+        ) : (
+          // ACTIVE CHAT (Claude Style)
+          <>
+             {/* Header */}
+             <div className="h-16 border-b bg-white/50 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-10">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
+                        <FileText size={18} />
+                    </div>
+                    <div>
+                        <h2 className="font-semibold text-slate-800">{currentFileName}</h2>
+                        {isUploading && <span className="text-xs text-blue-500 flex items-center gap-1 animate-pulse"><Loader2 size={10} className="animate-spin"/> Processing new file...</span>}
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-slate-600"><Bot size={18} /></Button>
+                </div>
+             </div>
+
+             {/* Messages Scroll Area */}
+             <div className="flex-1 overflow-y-auto p-4 sm:p-8 scroll-smooth custom-scrollbar">
+                <div className="max-w-3xl mx-auto space-y-8 pb-32"> {/* Added pb-32 for input clearance */}
+                    {messages.map((msg, i) => (
+                      <div key={i} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+                        
+                        {/* Avatar */}
+                        <div className={`
+                            flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm
+                            ${msg.role === 'user' 
+                                ? 'bg-slate-800 text-white' 
+                                : msg.role === 'system' ? 'bg-yellow-100 text-yellow-600' : 'bg-white border border-slate-100 text-blue-600'}
+                        `}>
+                            {msg.role === 'user' ? <User size={18} /> : msg.role === 'system' ? <Sparkles size={18} /> : <Bot size={20} />}
+                        </div>
+
+                        {/* Bubble */}
+                        <div className={`
+                           group relative px-6 py-4 max-w-[85%] shadow-sm leading-relaxed text-[15px]
+                           ${msg.role === 'user' 
+                             ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md' 
+                             : msg.role === 'system' 
+                                ? 'bg-yellow-50 text-yellow-900 border border-yellow-200 rounded-xl text-sm w-full text-center' 
+                                : 'bg-white text-slate-800 border border-slate-100 rounded-2xl rounded-tl-sm shadow-sm'}
+                        `}>
+                           <ReactMarkdown >
+                             {msg.content}
+                           </ReactMarkdown>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Thinking Indicator */}
+                    {isChatting && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content === "" && (
+                        <div className="flex gap-4">
+                            <div className="w-10 h-10 rounded-full bg-white border border-slate-100 flex items-center justify-center shadow-sm text-blue-600">
+                                <Bot size={20} />
+                            </div>
+                            <div className="bg-white border border-slate-100 px-6 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
+                                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                                <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></span>
+                            </div>
+                        </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                </div>
+             </div>
+
+             {/* 3. FLOATING INPUT CAPSULE */}
+             <div className="absolute bottom-6 left-0 right-0 px-4 flex justify-center z-20">
+                 <form 
+                    onSubmit={handleChat} 
+                    className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 p-2 flex items-end gap-2 transition-all ring-offset-2 focus-within:ring-2 ring-blue-500/50"
+                 >
+                   {/* File Upload Button */}
+                   <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept=".pdf"
+                      onChange={handleAdditionalUpload} 
+                   />
+                   <Button 
+                     type="button" 
+                     variant="ghost"
+                     size="icon"
+                     className="rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 mb-1"
+                     onClick={() => fileInputRef.current?.click()}
+                     disabled={isUploading || isChatting}
+                     title="Add context"
+                   >
+                     <Paperclip size={20} />
+                   </Button>
+
+                   {/* Text Input */}
+                   <div className="flex-1 py-3">
+                       <input
+                         value={question} 
+                         onChange={(e) => setQuestion(e.target.value)} 
+                         placeholder="Message DocChat..." 
+                         className="w-full bg-transparent border-none focus:ring-0 text-slate-800 placeholder:text-slate-400 text-base resize-none max-h-32 py-0 focus:outline-none shadow-none"
+                         disabled={isUploading || isChatting}
+                         autoComplete="off"
+                       />
+                   </div>
+
+                   {/* Send Button */}
+                   <Button 
+                        type="submit" 
+                        disabled={!question.trim() || isUploading || isChatting}
+                        className={`rounded-2xl h-10 w-10 p-0 mb-1 transition-all duration-300 ${question.trim() ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-100 text-slate-300'}`}
+                    >
+                     {isChatting ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                   </Button>
+                 </form>
              </div>
              
-             <form onSubmit={handleChat} className="flex gap-2 items-center">
-               {/* NEW: Paperclip Button for adding files */}
-               <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  accept=".pdf"
-                  onChange={handleAdditionalUpload} 
-               />
-               <Button 
-                 type="button" 
-                 variant="outline"
-                 size="icon"
-                 onClick={() => fileInputRef.current?.click()}
-                 disabled={isUploading || isChatting}
-                 title="Add another PDF to this chat"
-               >
-                 <Paperclip size={18} />
-               </Button>
-
-               <Input 
-                 value={question} 
-                 onChange={(e) => setQuestion(e.target.value)} 
-                 placeholder="Ask something..." 
-                 className="flex-1"
-                 disabled={isUploading || isChatting}
-               />
-               <Button type="submit" disabled={isUploading || isChatting}>
-                 {isChatting ? <Loader2 className="animate-spin" /> : <Send size={16} />}
-               </Button>
-             </form>
-          </div>
+             {/* Gradient Fade at bottom to hide scrolling text behind input */}
+             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#F8FAFC] to-transparent pointer-events-none z-10" />
+          </>
         )}
       </div>
     </div>
