@@ -13,6 +13,10 @@ from fastapi.responses import StreamingResponse
 from google.api_core.exceptions import ResourceExhausted # <--- ADD THIS
 import re
 
+import fitz  # PyMuPDF
+from PIL import Image
+import io
+
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -60,52 +64,90 @@ app.add_middleware(
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+def get_image_description(image_bytes):
+    try:
+        # 1. Open the image with Pillow
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # 2. Ask Gemini to describe it
+        model = genai.GenerativeModel('gemini-3-pro-preview')
+        response = model.generate_content([
+            "Describe this image in detail. If it's a chart or graph, explain the data trends.", 
+            image
+        ])
+        
+        return response.text.strip()
+    except Exception as e:
+        print(f"⚠️ Could not describe image: {e}")
+        return "(Image processing failed)"
+
 async def ingest_document(file: UploadFile, session_id: str):
-    # 1. Read the PDF file
+    # 1. Read the PDF file into memory
     content = await file.read()
-    pdf_file = io.BytesIO(content)
-    reader = PdfReader(pdf_file)
     
-    # 2. Setup Splitter
+    # Open with PyMuPDF (Fitz)
+    doc = fitz.open(stream=content, filetype="pdf")
+    
+    # Setup Splitter
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=100
     )
     
     total_chunks = 0
+    print(f"📖 Processing {len(doc)} pages with Multi-Modal Vision...")
 
-    print(f"📖 Processing {len(reader.pages)} pages...")
-
-    # 3. Iterate Page by Page (Crucial for Citations)
-    for i, page in enumerate(reader.pages):
+    # 2. Iterate Page by Page
+    for i, page in enumerate(doc):
         page_number = i + 1
-        page_text = page.extract_text()
         
+        # --- A. Extract Text ---
+        page_text = page.get_text()
+        
+        # --- B. Extract & Describe Images ---
+        image_list = page.get_images(full=True)
+        
+        if image_list:
+            print(f"   found {len(image_list)} images on page {page_number}...")
+            
+            for img_index, img in enumerate(image_list):
+                xref = img[0] # The image reference ID
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                
+                # Ask Gemini to describe it
+                # We add a small description to the text so the vector search can find it!
+                description = get_image_description(image_bytes)
+                
+                page_text += f"\n\n[IMAGE ON PAGE {page_number}]: {description}\n\n"
+                
+                # Sleep briefly to avoid hitting Rate Limits (Free Tier)
+                import time
+                time.sleep(2) 
+
+        # --- C. Chunk & Save (Standard RAG) ---
         if not page_text: 
             continue
 
-        # Split THIS page's text into chunks
         chunks = text_splitter.split_text(page_text)
         
         for chunk in chunks:
-            # Generate Embedding
             response = genai.embed_content(
                 model="models/text-embedding-004",
                 content=chunk,
                 task_type="retrieval_document"
             )
             
-            # Save to DB with Page Number in metadata!
             data = {
                 "content": chunk, 
                 "embedding": response['embedding'],
                 "session_id": session_id,
-                "metadata": {"page": page_number} # <--- THE MAGIC SAUCE
+                "metadata": {"page": page_number}
             }
             supabase.table("documents").insert(data).execute()
             total_chunks += 1
             
-    print(f"✅ Finished! Created {total_chunks} chunks.")
+    print(f"✅ Finished! Created {total_chunks} multi-modal chunks.")
     return total_chunks
 
 def get_relevant_context(user_question: str, session_id: str):

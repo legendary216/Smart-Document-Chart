@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Upload, Send, Loader2, MessageSquare, PlusCircle, FileText, Trash2, Paperclip } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
+
+
 type Session = {
   id: string;
   file_name: string;
