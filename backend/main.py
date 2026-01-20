@@ -6,8 +6,8 @@ from supabase import create_client, Client
 from pypdf import PdfReader
 import google.generativeai as genai
 import io
+import uuid
 
-# 1. Load Keys
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -46,40 +46,47 @@ def split_text(text, chunk_size=1000, overlap=100):
         start += chunk_size - overlap
     return chunks
 
-async def ingest_document(file: UploadFile):
-    # A. Clear existing data (So we only chat with THIS file)
-    # We delete all rows where ID is greater than 0
-    print("🧹 Clearing old documents...")
-    supabase.table("documents").delete().gt("id", 0).execute()
-
-    # B. Read and Split PDF
+async def ingest_document(file: UploadFile, session_id: str):
+    # Note: We NO LONGER wipe the whole database!
+    
+    # 1. Read PDF
     content = await file.read()
     text = get_text_from_pdf(content)
     chunks = split_text(text)
     
-    print(f"🔪 Split into {len(chunks)} chunks. Uploading...")
-
-    # C. Embed and Save to Supabase
+    # 2. Embed & Save with Session ID
+    print(f"💾 Saving to Session {session_id}...")
     for chunk in chunks:
         response = genai.embed_content(
             model="models/text-embedding-004",
             content=chunk,
             task_type="retrieval_document"
         )
-        data = {"content": chunk, "embedding": response['embedding']}
+        data = {
+            "content": chunk, 
+            "embedding": response['embedding'],
+            "session_id": session_id  # <--- TAGGING
+        }
         supabase.table("documents").insert(data).execute()
     
     return len(chunks)
 
-def get_relevant_context(user_question: str):
+def get_relevant_context(user_question: str, session_id: str):
     response = genai.embed_content(
         model="models/text-embedding-004",
         content=user_question,
         task_type="retrieval_query"
     )
+    
+    # We now pass 'filter_session_id' to the database
     result = supabase.rpc(
         "match_documents", 
-        {"query_embedding": response['embedding'], "match_threshold": 0.3, "match_count": 5}
+        {
+            "query_embedding": response['embedding'], 
+            "match_threshold": 0.3, 
+            "match_count": 5,
+            "filter_session_id": session_id # <--- FILTERING
+        }
     ).execute()
     
     context = ""
@@ -94,19 +101,33 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         if not file.filename.endswith(".pdf"):
              raise HTTPException(status_code=400, detail="Only PDFs are allowed")
-             
-        num_chunks = await ingest_document(file)
-        return {"message": f"Successfully processed {num_chunks} chunks. Ready to chat!"}
+        
+        # 1. Create a new Session in DB
+        session_data = {"file_name": file.filename}
+        session_res = supabase.table("sessions").insert(session_data).execute()
+        new_session_id = session_res.data[0]['id']
+        
+        # 2. Process File for this Session
+        await ingest_document(file, new_session_id)
+        
+        return {
+            "message": "Upload success", 
+            "sessionId": new_session_id, # Return ID to Frontend
+            "fileName": file.filename
+        }
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
-async def chat(question: str = Form(...)):
+async def chat(
+    question: str = Form(...),
+    session_id: str = Form(...) # Frontend MUST send this now
+):
     try:
-        context = get_relevant_context(question)
+        context = get_relevant_context(question, session_id)
         if not context:
-            return {"answer": "I couldn't find any information in the document."}
+            return {"answer": "I couldn't find any information in this document."}
 
         model = genai.GenerativeModel('gemini-3-flash-preview')
         prompt = f"""
@@ -119,3 +140,9 @@ async def chat(question: str = Form(...)):
         return {"answer": response.text}
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sessions")
+def get_sessions():
+    # Helper to list all previous chats
+    res = supabase.table("sessions").select("*").order("created_at", desc=True).execute()
+    return res.data
